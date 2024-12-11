@@ -34,11 +34,11 @@ impl TokenClaims {
     }
 }
 
-// pub fn decode_token(token: String) -> Result<TokenData<JwtUserToken>, String> {
-//     let user = decode::<JwtUserToken>(
-//         &token,
-//         &DecodingKey::from_secret("secret_key".as_bytes()),
-//         &Validation::default(),
-//     ).map_err(|e: JwtError| e.to_string());
-//     user
-// }
+pub fn decode_token(token: String) -> Result<TokenData<JwtUserToken>, String> {
+    let user = decode::<JwtUserToken>(
+        &token,
+        &DecodingKey::from_secret("secret_key".as_bytes()),
+        &Validation::default(),
+    ).map_err(|e: JwtError| e.to_string());
+    user
+}

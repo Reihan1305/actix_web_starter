@@ -1,5 +1,6 @@
 mod modules;
 mod utils;
+mod midleware;
 use actix_cors::Cors;
 use actix_web::{get, HttpResponse, Responder};
 use actix_web::middleware::Logger;
