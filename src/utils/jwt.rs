@@ -1,24 +1,24 @@
 use jsonwebtoken::{encode, EncodingKey, Header, TokenData,decode,DecodingKey,Validation ,errors::Error as JwtError};
 
-use crate::modules::auth::auth_models::User;
+use crate::modules::auth::auth_models::UserPayload;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
 pub struct TokenClaims {
     pub iat : i64,
     pub exp : i64,
-    pub user :User,
+    pub user :UserPayload,
 }
 
-#[derive(Debug,Deserialize,Serialize)]
+#[derive(Deserialize,Serialize)]
 pub struct JwtUserToken{
-        pub user: User,
+        pub user: UserPayload,
         pub iat: i64,    
         pub exp: i64
 }
 
 impl TokenClaims {
-    pub fn generate_token(data:User) -> Result<String, String> {
+    pub fn generate_token(data:UserPayload) -> Result<String, String> {
         let max_age:i64 = 60 * 60 * 24;
         let iat = chrono::Utc::now().timestamp();
         let exp = iat + max_age;

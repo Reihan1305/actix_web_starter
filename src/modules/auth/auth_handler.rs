@@ -1,19 +1,11 @@
 use actix_web::{post, web, Error, HttpResponse, Responder};
 use argon2::{password_hash::{rand_core::OsRng, SaltString}, Argon2, PasswordHasher, PasswordVerifier};
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::query_as;
-use uuid::Uuid;
 use validator::Validate;
 use crate::AppState;
-
-use super::auth_models::Register;
-
-#[derive(Debug,Deserialize,Serialize)]
-pub struct Payload {
-    pub id: Uuid,
-    pub email: String,
-}
+use crate::utils::jwt::TokenClaims;
+use super::auth_models::{Register,Login,User,UserPayload};
 
 #[post("/register")]
 pub async fn register(
@@ -57,7 +49,7 @@ pub async fn register(
     .await;
     match new_user {
         Ok(user) => {
-            let payload = Payload {
+            let payload:UserPayload = UserPayload {
                 id: user.id.expect("invalid uuid"),
                 email: user.email,
             };
@@ -79,6 +71,44 @@ pub async fn register(
                     "message": format!("{:?}", err)
                 }))
             }
+        }
+    }
+}
+
+#[post("/login")]
+pub async fn login(
+    body:web::Json<Login>,
+    db_conn:web::Data<AppState>
+) -> impl Responder {
+    let user_result = query_as!(
+        User,
+        r#"SELECT * FROM "user" WHERE email = $1"#,
+        body.email
+    )
+    .fetch_one(&db_conn.db)
+    .await;
+
+    match user_result{
+        Ok(user)=>{
+            let password_hash = user.password;
+            let argon2 = Argon2::default();
+            let parsed_hash = argon2::PasswordHash::new(&password_hash).unwrap();
+            let result = argon2.verify_password(body.password.as_bytes(), &parsed_hash);
+
+            match result {
+            Ok(_)=>{
+                let user_payload :UserPayload = UserPayload{
+                    id:user.id,
+                    email:user.email
+                };
+                let token:String= TokenClaims::generate_token(user_payload).unwrap();
+                Ok::<HttpResponse, Error>(HttpResponse::Ok().json(json!({"status":"success","token":token,"message":"login success"})))
+            },
+            Err(_err) => Ok(HttpResponse::Unauthorized().json(json!({"message":"error when login"})))
+            }
+        },
+        Err(_err)=>{
+            Ok(HttpResponse::Unauthorized().json(json!({"message":"error when login"})))
         }
     }
 }

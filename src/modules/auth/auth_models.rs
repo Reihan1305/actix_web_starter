@@ -11,8 +11,21 @@ pub struct Register {
     pub password:String
 }
 
-#[derive(Debug,Deserialize,Serialize)]
+#[derive(Deserialize,Serialize)]
 pub struct User {
     pub id:Uuid,
     pub email:String,
+    pub password:String
+}
+
+#[derive(Deserialize,Serialize)]
+pub struct Login {
+    pub email:String,
+    pub password:String
+}
+
+#[derive(Debug,Deserialize,Serialize)]
+pub struct UserPayload {
+    pub id: Uuid,
+    pub email: String,
 }
