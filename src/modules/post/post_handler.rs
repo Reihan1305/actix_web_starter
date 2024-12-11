@@ -1,4 +1,4 @@
-use crate::{midleware::authmiddlewares::Authentication, AppState};
+use crate::{midleware::authmiddlewares:: Authentication, AppState};
 use super::post_models::{NewPost,Post};
 use actix_web::{delete, get, patch, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use serde_json::json;
@@ -36,19 +36,22 @@ pub async fn get_all_post(
     }
 }
 
-#[post("/post")]
+#[post("")]
 async fn create_post_handlers(
-    body:web::Json<NewPost>,
+    mut body:web::Json<NewPost>,
     data:web::Data<AppState>,
     req:HttpRequest
 ) -> impl Responder {
-    let user_id = req.extensions().get::<Uuid>().cloned().unwrap();
+    match req.extensions().get::<Uuid>().cloned(){
+        Some(id)=>body.user_id = Some(id),
+        None=> return HttpResponse::Unauthorized().json(json!({"message":"invalid user id","status":"fail"}))
+    }
     let new_post = query_as!(
         Post,
         r#"INSERT INTO post(title, content,user_id) VALUES ($1, $2,$3) RETURNING *"#,
         body.title,
         body.content,
-        user_id
+        body.user_id
     )
     .fetch_one(&data.db)
     .await;
@@ -78,8 +81,8 @@ async fn create_post_handlers(
 
 pub fn post_config(conf: &mut web::ServiceConfig) {
     let scope = web::scope("/post")
-        .service(get_all_post)
         .wrap(Authentication)
+        .service(get_all_post)
         .service(create_post_handlers);
 
     conf.service(scope);

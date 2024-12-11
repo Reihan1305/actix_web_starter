@@ -51,7 +51,7 @@ where
                 if auth_str.starts_with("Bearer ") {
                     let token = auth_str.trim_start_matches("Bearer ").trim();
                     let decode_token = decode_token(token.to_string()).expect("token invalid");
-                     
+                     println!("{}from auth middleware",decode_token.claims.user.id);
                     req.extensions_mut().insert(decode_token.claims.user.id);
                         let fut = self.service.call(req);
                         return Box::pin(async move {

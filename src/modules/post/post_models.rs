@@ -8,7 +8,7 @@ pub struct Post {
     pub id: i64,
     pub title: String,
     pub content: String,
-    pub user_id: Uuid,
+    pub user_id: Option<Uuid>,
     pub create_at: Option<NaiveTime>,
     pub updated_at: Option<NaiveTime>,
 }
@@ -19,5 +19,5 @@ pub struct NewPost{
     pub title:String,
     #[validate(length(min="20",message="please add your content"))]
     pub content:String,
-    pub user_id:Uuid
+    pub user_id:Option<Uuid>
 }

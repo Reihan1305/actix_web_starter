@@ -3,6 +3,7 @@ mod modules;
 mod utils;
 mod midleware;
 use actix_cors::Cors;
+use actix_web::web::scope;
 use actix_web::{get, HttpResponse, Responder};
 use actix_web::middleware::Logger;
 use actix_web::{http::header, web, App, HttpServer};
@@ -20,21 +21,16 @@ pub struct AppState {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    /// set default log level if not set
     if std::env::var_os("RUST_LOG").is_none() {
         std::env::set_var("RUST_LOG", "actix_web=info");
     }
 
-    /// load env file
     dotenv().ok();
 
-    /// init loger
     env_logger::init();
 
-    ///load database_url from env file
     let database_url:String = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
-    ///create new database pool 
     let pool = match PgPoolOptions::new()
         .max_connections(10)
         .connect(&database_url)
@@ -51,7 +47,6 @@ async fn main() -> std::io::Result<()> {
     };
 
     println!("🚀 Server started successfully");
-    /// actix web rust configuration Httpserver
     HttpServer::new(move || {
         let cors = Cors::default()
             .allowed_origin("http://localhost:3000")
@@ -66,9 +61,12 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(AppState { db: pool.clone() }))
             .wrap(cors)
             .wrap(Logger::default())
-            .service(api_health_check)
-            .configure(auth_config)
-            .configure(post_config)
+            .service(
+                scope("/api")
+                .service(api_health_check)
+                .configure(auth_config)
+                .configure(post_config)
+            )
     })
     .bind(("0.0.0.0", 8080))?
     .run()
