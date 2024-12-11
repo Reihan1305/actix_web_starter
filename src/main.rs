@@ -9,7 +9,7 @@ use actix_web::middleware::Logger;
 use actix_web::{http::header, web, App, HttpServer};
 use dotenv::dotenv;
 use modules::auth::auth_handler::auth_config;
-use modules::post::post_handler::post_config;
+use modules::post::post_handler::public_post_config;
 use serde_json::json;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 
@@ -65,7 +65,7 @@ async fn main() -> std::io::Result<()> {
                 scope("/api")
                 .service(api_health_check)
                 .configure(auth_config)
-                .configure(post_config)
+                .configure(public_post_config)
             )
     })
     .bind(("0.0.0.0", 8080))?

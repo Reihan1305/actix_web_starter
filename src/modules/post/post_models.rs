@@ -1,4 +1,4 @@
-use sqlx::types::chrono::{DateTime,Utc,NaiveTime};
+use sqlx::types::chrono::NaiveTime;
 use serde::{Serialize,Deserialize};
 use uuid::Uuid;
 use validator::Validate;
@@ -20,4 +20,10 @@ pub struct NewPost{
     #[validate(length(min="20",message="please add your content"))]
     pub content:String,
     pub user_id:Option<Uuid>
+}
+
+#[derive(Serialize,Deserialize)]
+pub struct UpdatePost{
+    pub title:Option<String>,
+    pub content:Option<String>
 }
