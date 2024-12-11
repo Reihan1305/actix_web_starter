@@ -5,7 +5,7 @@ use validator::Validate;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Post {
-    pub id: i64,
+    pub id: i32,
     pub title: String,
     pub content: String,
     pub user_id: Option<Uuid>,

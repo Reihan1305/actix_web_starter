@@ -31,7 +31,7 @@ pub async fn register(
     // Validate input
     if let Err(errors) = user_input.validate() {
         return HttpResponse::BadRequest().json(json!({
-            "status": "fail",
+            "status": "failed",
             "message": errors
         }));
     }
@@ -62,7 +62,7 @@ pub async fn register(
         Err(err) => {
             if err.to_string().contains("duplicate key value violates unique constraint") {
                 HttpResponse::BadRequest().json(json!({
-                    "status": "fail",
+                    "status": "failed",
                     "message": "User with that email or username already exists"
                 }))
             } else {
