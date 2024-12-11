@@ -1,3 +1,4 @@
+#[warn(unused_doc_comments)]
 mod modules;
 mod utils;
 mod midleware;
@@ -7,22 +8,33 @@ use actix_web::middleware::Logger;
 use actix_web::{http::header, web, App, HttpServer};
 use dotenv::dotenv;
 use modules::auth::auth_handler::auth_config;
+use modules::post::post_handler::post_config;
 use serde_json::json;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 
+
+// struct AppState that include database pool 
 pub struct AppState {
     db: Pool<Postgres>,
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    /// set default log level if not set
     if std::env::var_os("RUST_LOG").is_none() {
         std::env::set_var("RUST_LOG", "actix_web=info");
     }
+
+    /// load env file
     dotenv().ok();
+
+    /// init loger
     env_logger::init();
 
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    ///load database_url from env file
+    let database_url:String = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+
+    ///create new database pool 
     let pool = match PgPoolOptions::new()
         .max_connections(10)
         .connect(&database_url)
@@ -39,7 +51,7 @@ async fn main() -> std::io::Result<()> {
     };
 
     println!("🚀 Server started successfully");
-
+    /// actix web rust configuration Httpserver
     HttpServer::new(move || {
         let cors = Cors::default()
             .allowed_origin("http://localhost:3000")
@@ -56,6 +68,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(Logger::default())
             .service(api_health_check)
             .configure(auth_config)
+            .configure(post_config)
     })
     .bind(("0.0.0.0", 8080))?
     .run()
