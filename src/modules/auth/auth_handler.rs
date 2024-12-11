@@ -117,5 +117,6 @@ pub fn auth_config(config:&mut web::ServiceConfig){
     config.service(
         web::scope("/auth")
         .service(register)
+        .service(login)
     );
 }
