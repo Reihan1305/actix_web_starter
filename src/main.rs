@@ -1,8 +1,11 @@
+mod modules;
+mod utils;
 use actix_cors::Cors;
 use actix_web::{get, HttpResponse, Responder};
 use actix_web::middleware::Logger;
 use actix_web::{http::header, web, App, HttpServer};
 use dotenv::dotenv;
+use modules::auth::auth_handler::auth_config;
 use serde_json::json;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 
@@ -51,6 +54,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(cors)
             .wrap(Logger::default())
             .service(api_health_check)
+            .configure(auth_config)
     })
     .bind(("0.0.0.0", 8080))?
     .run()
