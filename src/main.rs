@@ -2,35 +2,42 @@
 mod modules;
 mod utils;
 mod midleware;
+mod service;
 use actix_cors::Cors;
 use actix_web::web::scope;
 use actix_web::{get, HttpResponse, Responder};
 use actix_web::middleware::Logger;
 use actix_web::{http::header, web, App, HttpServer};
 use dotenv::dotenv;
-use modules::auth::auth_handler::auth_config;
 use modules::post::post_handler::public_post_config;
+use r2d2_redis::redis::Commands;
 use serde_json::json;
+use service::redis::{connect, RedisPool};
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 
 
 // struct AppState that include database pool 
 pub struct AppState {
     db: Pool<Postgres>,
+    redis:RedisPool
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    //initailize rust log
     if std::env::var_os("RUST_LOG").is_none() {
         std::env::set_var("RUST_LOG", "actix_web=info");
     }
-
+    //reading the .env file
     dotenv().ok();
 
+    //initialize env logger
     env_logger::init();
 
+    //get database_url from env
     let database_url:String = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
+    //create postgres pool
     let pool = match PgPoolOptions::new()
         .max_connections(10)
         .connect(&database_url)
@@ -46,7 +53,10 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
+    let redis_conn =  connect();
     println!("🚀 Server started successfully");
+    
+    //create server with actix web
     HttpServer::new(move || {
         let cors = Cors::default()
             .allowed_origin("http://localhost:3000")
@@ -58,13 +68,12 @@ async fn main() -> std::io::Result<()> {
             ])
             .supports_credentials();
         App::new()
-            .app_data(web::Data::new(AppState { db: pool.clone() }))
+            .app_data(web::Data::new(AppState { db: pool.clone() ,redis:redis_conn.clone()}))
             .wrap(cors)
             .wrap(Logger::default())
             .service(
                 scope("/api")
                 .service(api_health_check)
-                .configure(auth_config)
                 .configure(public_post_config)
             )
     })
@@ -77,4 +86,22 @@ async fn main() -> std::io::Result<()> {
 pub async fn api_health_check()-> impl Responder {
     let message : &str = "api healty ready to go 🚀🚀";
     HttpResponse::Ok().json(json!({"status":"success","message":message}))
+}
+
+
+#[get("/test-redis")]
+pub async fn test_redis(data: web::Data<AppState>) -> impl Responder {
+    let pool = &data.redis;
+
+    // Ambil koneksi dari pool
+    let mut conn = pool.get().expect("Failed to get Redis connection");
+
+    // Lakukan operasi Redis
+    let _: () = conn.set("key", "value").expect("Failed to set key");
+    let value: String = conn.get("key").expect("Failed to get key");
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "success",
+        "value": value
+    }))
 }

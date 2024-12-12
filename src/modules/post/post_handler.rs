@@ -1,38 +1,69 @@
-use crate::{midleware::authmiddlewares:: Authentication, AppState};
+use crate::AppState;
 use super::post_models::{NewPost,Post,UpdatePost};
-use actix_web::{delete, get, patch, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{delete, get, patch, post, web, HttpResponse, Responder};
+use r2d2_redis::redis::Commands;
 use serde_json::json;
 use sqlx::{query, query_as};
-use uuid::Uuid;
 
 #[get("/getall/{page}")]
 pub async fn get_all_post(
-    path:web::Path<i64>,
+    path: web::Path<i64>,
     data: web::Data<AppState>,
 ) -> impl Responder {
     let page = path.into_inner();
-    let limit:i64 = 10;
-    let offset = (page - 1)*limit;
-    let posts = query_as!(
-        Post,
-        r#"SELECT * FROM post ORDER BY id LIMIT $1 OFFSET $2"#,
-        limit,
-        offset,
-    ).fetch_all(&data.db).await;
-    match posts {
-        Ok(posts) => {
-            let json_response = serde_json::json!({
+    let limit: i64 = 10;
+    let offset = (page - 1) * limit;
+
+    // Membuat key cache berdasarkan halaman
+    let redis_key = format!("posts_page_{}", page);
+
+    // Mengakses Redis connection dari AppState
+    let mut redis_conn = data.redis.get().expect("cant connect to redis");
+
+    // Cek cache Redis
+    match redis_conn.get::<String, String>(redis_key.clone()) {
+        Ok(posts) if !posts.is_empty() => {
+            // Jika data ditemukan di cache
+            let posts: serde_json::Value = serde_json::from_str(&posts).unwrap_or_default();
+            return HttpResponse::Ok().json(json!({
                 "status": "ok",
                 "data": posts,
-            });
-            HttpResponse::Ok().json(json_response)
-        },
-        Err(_) => {
-            let message = "Something bad happened when fetching all posts";
-            HttpResponse::InternalServerError().json(
-                serde_json::json!({"status": "error", "message": message}),
+                "source": "cache"
+            }));
+        }
+        _ => {
+            // Jika tidak ditemukan di cache, query ke database
+            let posts = sqlx::query_as!(
+                Post,
+                r#"SELECT * FROM post ORDER BY id LIMIT $1 OFFSET $2"#,
+                limit,
+                offset,
             )
-        },
+            .fetch_all(&data.db)
+            .await;
+
+            match posts {
+                Ok(posts) => {
+                    let posts_json = serde_json::to_string(&posts).unwrap_or_default();
+
+                    // Simpan hasil query ke Redis dengan TTL 5 menit
+                    let _: () = redis_conn.set_ex(&redis_key, posts_json, 60 * 5).unwrap();
+
+                    HttpResponse::Ok().json(json!({
+                        "status": "ok",
+                        "data": posts,
+                        "source": "database"
+                    }))
+                }
+                Err(_) => {
+                    // Jika gagal query ke database
+                    HttpResponse::InternalServerError().json(json!({
+                        "status": "error",
+                        "message": "Something bad happened when fetching all posts"
+                    }))
+                }
+            }
+        }
     }
 }
 
@@ -72,20 +103,14 @@ pub async fn get_one_post(
 
 #[post("")]
 async fn create_post_handlers(
-    mut body:web::Json<NewPost>,
+    body:web::Json<NewPost>,
     data:web::Data<AppState>,
-    req:HttpRequest
 ) -> impl Responder {
-    match req.extensions().get::<Uuid>().cloned(){
-        Some(id)=>body.user_id = Some(id),
-        None=> return HttpResponse::Unauthorized().json(json!({"message":"invalid user id","status":"failed"}))
-    }
     let new_post = query_as!(
         Post,
-        r#"INSERT INTO post(title, content,user_id) VALUES ($1, $2,$3) RETURNING *"#,
+        r#"INSERT INTO post(title, content) VALUES ($1, $2) RETURNING *"#,
         body.title,
         body.content,
-        body.user_id
     )
     .fetch_one(&data.db)
     .await;
@@ -116,15 +141,12 @@ async fn create_post_handlers(
 pub async fn delete_post_by_id(
     id:web::Path<i32>,
     data: web::Data<AppState>,
-    req:HttpRequest
 ) -> impl Responder {
-    if let Some(user_id) = req.extensions().get::<Uuid>().cloned(){
         let id = id.into_inner();
         let post = query_as!(
             Post,
-            r#"SELECT * FROM post WHERE id = $1 AND user_id = $2"#,
+            r#"SELECT * FROM post WHERE id = $1"#,
             id,
-            user_id
         ).fetch_one(&data.db).await;
     
         match post {
@@ -150,26 +172,19 @@ pub async fn delete_post_by_id(
                 }
             },
         }
-    
-    }else{
-        return HttpResponse::Unauthorized().json(json!({"message":"invalid user id","status":"failed"}))
-    }
 }
 
 #[patch("/{id}")]
 pub async fn update_post_by_id(
     id:web::Path<i32>,
     data: web::Data<AppState>,
-    body:web::Json<UpdatePost>,
-    req:HttpRequest
+    body:web::Json<UpdatePost>
 ) -> impl Responder {
-    if let Some(user_id) = req.extensions().get::<Uuid>().cloned(){
         let id = id.into_inner();
         let post = query_as!(
             Post,
-            r#"SELECT * FROM post WHERE id = $1 AND user_id = $2"#,
-            id,
-            user_id
+            r#"SELECT * FROM post WHERE id = $1"#,
+            id
         ).fetch_one(&data.db).await;
         match post {
             Ok(post) => {
@@ -209,10 +224,6 @@ pub async fn update_post_by_id(
                 }
             },
         }
-    
-    }else{
-        return HttpResponse::Unauthorized().json(json!({"message":"invalid user id","status":"failed"}))
-    }
 }
 
 
@@ -221,7 +232,6 @@ pub fn public_post_config(conf: &mut web::ServiceConfig) {
     let public_scope = web::scope("/post")
     .service(get_all_post)
     .service(get_one_post)
-.wrap(Authentication) 
 .service(create_post_handlers)
 .service(delete_post_by_id)
 .service(update_post_by_id);
