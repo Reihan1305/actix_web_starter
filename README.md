@@ -50,6 +50,20 @@ run this commmand for build and runing actix web
 cargo build run
 ```
 
+### optional
+if you dont want use auth you cant delete this file
+```bash
+/src/midleware/authmiddleware.rs
+/src/modules/auth
+```
+or if you want use auth you  cant uncommand mod file 
+```
+/src/middleware/mod.rs
+```
+and     
+```
+src/modules/mod.rs
+```
 
 ## add your own table
 - create migration file
@@ -64,9 +78,6 @@ sqlx migration add -r <migration name>
 ```bash
 sqlx migration run 
 ```
-
-
-
 
 ## Features
 
