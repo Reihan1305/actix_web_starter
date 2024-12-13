@@ -9,17 +9,22 @@ use actix_web::{get, HttpResponse, Responder};
 use actix_web::middleware::Logger;
 use actix_web::{http::header, web, App, HttpServer};
 use dotenv::dotenv;
+use lapin::options::{BasicPublishOptions, QueueDeclareOptions};
+use lapin::types::FieldTable;
+use lapin::BasicProperties;
 use modules::post::post_handler::public_post_config;
 use r2d2_redis::redis::Commands;
 use serde_json::json;
-use service::redis::{connect, RedisPool};
+use service::rabbitmq::{rabbit_connect, RabbitMqPool};
+use service::redis::{redis_connect, RedisPool};
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 
 
 // struct AppState that include database pool 
 pub struct AppState {
     db: Pool<Postgres>,
-    redis:RedisPool
+    redis:RedisPool,
+    rabbit:RabbitMqPool
 }
 
 #[actix_web::main]
@@ -39,7 +44,8 @@ async fn main() -> std::io::Result<()> {
 
     //create postgres pool
     let pool = match PgPoolOptions::new()
-        .max_connections(10)
+        .min_connections(5)
+        .max_connections(50)
         .connect(&database_url)
         .await
     {
@@ -53,7 +59,8 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
-    let redis_conn =  connect();
+    let redis_conn =  redis_connect();
+    let rabbit_conn = rabbit_connect();
     println!("🚀 Server started successfully");
     
     //create server with actix web
@@ -68,11 +75,13 @@ async fn main() -> std::io::Result<()> {
             ])
             .supports_credentials();
         App::new()
-            .app_data(web::Data::new(AppState { db: pool.clone() ,redis:redis_conn.clone()}))
+            .app_data(web::Data::new(AppState { db: pool.clone() ,redis:redis_conn.clone(),rabbit:rabbit_conn.clone()}))
             .wrap(cors)
             .wrap(Logger::default())
             .service(
                 scope("/api")
+                .service(test_rabbitmq)
+                .service(test_redis)
                 .service(api_health_check)
                 .configure(public_post_config)
             )
@@ -103,5 +112,40 @@ pub async fn test_redis(data: web::Data<AppState>) -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({
         "status": "success",
         "value": value
+    }))
+}
+
+#[get("/test-rabbitmq")]
+pub async fn test_rabbitmq(data: web::Data<AppState>) -> impl Responder {
+    let pool = &data.rabbit;
+
+    // Ambil koneksi dari pool RabbitMQ
+    let conn = pool.get().await.    expect("cant connect to pool");
+    let channel = conn.create_channel().await.expect("Failed to create channel");
+
+    // Membuat antrian
+    channel.queue_declare(
+            "test_queue",
+            QueueDeclareOptions::default(),
+            FieldTable::default(),
+        )
+        .await
+        .expect("Failed to declare queue");
+
+    // Mengirim pesan ke antrian
+    let _ = channel
+        .basic_publish(
+            "",
+            "test_queue",
+            BasicPublishOptions::default(),
+            b"Hello, RabbitMQ!",
+            BasicProperties::default(),
+        )
+        .await
+        .expect("Failed to publish message");
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "success",
+        "message": "Message sent to RabbitMQ"
     }))
 }
