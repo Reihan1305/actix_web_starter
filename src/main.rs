@@ -3,11 +3,15 @@ mod modules;
 mod utils;
 mod midleware;
 mod service;
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use actix_cors::Cors;
+use actix_web::rt::spawn;
 use actix_web::web::scope;
 use actix_web::{get, HttpResponse, Responder};
 use actix_web::middleware::Logger;
 use actix_web::{http::header, web, App, HttpServer};
+use cronjob::CronJob;
 use dotenv::dotenv;
 use lapin::options::{BasicPublishOptions, QueueDeclareOptions};
 use lapin::types::FieldTable;
@@ -35,10 +39,10 @@ async fn main() -> std::io::Result<()> {
     }
     //reading the .env file
     dotenv().ok();
-
+    let mut secondly =  CronJob::new("testing cron", schedular_test);
+    secondly.seconds("1");
     //initialize env logger
     env_logger::init();
-
     //get database_url from env
     let database_url:String = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
@@ -63,6 +67,10 @@ async fn main() -> std::io::Result<()> {
     let rabbit_conn = rabbit_connect();
     println!("🚀 Server started successfully");
     
+    spawn(async move {
+        println!("schedular start");
+        secondly.start_job();  // Mulai cron job
+    });
     //create server with actix web
     HttpServer::new(move || {
         let cors = Cors::default()
@@ -89,6 +97,13 @@ async fn main() -> std::io::Result<()> {
     .bind(("0.0.0.0", 8080))?
     .run()
     .await
+}
+
+pub fn schedular_test(name:&str){
+    let start_time = SystemTime::now();
+    let elapsed = start_time.duration_since(UNIX_EPOCH).expect("Time went backwards");
+    println!("Job executed at: {:?}", elapsed);
+    println!("test schedular : {}", name);
 }
 
 #[get("/healthcheck")]
