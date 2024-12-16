@@ -232,9 +232,9 @@ pub fn public_post_config(conf: &mut web::ServiceConfig) {
     let public_scope = web::scope("/post")
     .service(get_all_post)
     .service(get_one_post)
-.service(create_post_handlers)
-.service(delete_post_by_id)
-.service(update_post_by_id);
+    .service(create_post_handlers)
+    .service(delete_post_by_id)
+    .service(update_post_by_id);
 
     conf.service(public_scope);
 }
