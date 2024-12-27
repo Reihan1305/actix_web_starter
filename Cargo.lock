@@ -216,6 +216,7 @@ dependencies = [
  "jsonwebtoken",
  "kafka",
  "lapin",
+ "once_cell",
  "r2d2_redis",
  "redis 0.27.6",
  "serde",

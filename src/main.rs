@@ -2,16 +2,32 @@ mod modules;
 mod utils;
 mod midleware;
 mod service;
-use std::collections::HashMap;
-
+use std::{
+    collections::HashMap,
+    env::{
+        var_os,
+        set_var,
+        var
+    }
+};
 use actix_cors::Cors;
-use actix_web::{get, HttpResponse, Responder, web, App, HttpServer};
-use actix_web::http::header;
-use actix_web::middleware::Logger;
-use actix_web::web::scope;
-use lapin::options::{BasicPublishOptions, QueueDeclareOptions};
-use lapin::types::FieldTable;
-use lapin::BasicProperties;
+use actix_web::{http::header,middleware::Logger,{
+    get, 
+    HttpResponse, 
+    Responder, 
+    web::{self,scope}, 
+    App, 
+    HttpServer
+}};
+use lapin::{
+    BasicProperties,
+    types::FieldTable,
+    options::{
+    BasicPublishOptions, 
+    QueueDeclareOptions
+    }
+};
+
 use r2d2_redis::redis::Commands;
 use serde_json::json;
 use modules::post::post_handler::public_post_config;
@@ -25,22 +41,21 @@ pub struct AppState {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    
     dotenv::dotenv().ok();
-    env_logger::init();
     // Setup logger and environment variables
-    if std::env::var_os("RUST_LOG").is_none() {
-        std::env::set_var("RUST_LOG", "actix_web=info");
+    env_logger::init();
+    if var_os("RUST_LOG").is_none() {
+        set_var("RUST_LOG", "actix_web=info");
     }
 
     //get port from env
-    let port: u16 = std::env::var("PORT")
+    let port: u16 = var("PORT")
                     .expect("cant get port from env")
                     .parse::<u16>()
                     .expect("cant convert port to u16");
 
     // get database_url from env
-    let database_url: String = std::env::var("DATABASE_URL")
+    let database_url: String = var("DATABASE_URL")
                                .expect("cant get db url from env");
 
     // create initial pool database
@@ -99,39 +114,6 @@ async fn main() -> std::io::Result<()> {
     .run()
     .await
 }
-
-
-
-    // Setup CronJob
-    // let mut secondly_job = CronJob::new("testing_cron", schedular_test);
-    // secondly_job.seconds("1");
-
-    // let pool_clone = pool.clone();
-    // spawn(async move{
-    //     start_background_worker(pool_clone).await;
-    // });
-    // spawn(async move {
-    //     println!("🚀 Scheduler started 🚀");
-    //     secondly_job.start_job();
-    // });
-/// Background worker function
-// async fn start_background_worker(db: Pool<Postgres>) {
-//     loop {
-//         match query("SELECT 1;").fetch_all(&db).await {
-//             Ok(_) => println!("🛠️ Background worker: Database connection successful"),
-//             Err(err) => println!("❌ Background worker: Database error: {}", err),
-//         }
-
-//         actix_web::rt::time::sleep(time::Duration::from_secs(60)).await; // Wait 60 seconds
-//     }
-// }
-
-/// CronJob scheduler test
-// pub fn schedular_test(name: &str) {
-//     let start_time = SystemTime::now();
-//     let elapsed = start_time.elapsed().expect("Time went backwards");
-//     println!("⏰ Job executed at: {:?} | Name: {}", elapsed, name);
-// }
 
 /// Health Check Endpoint
 #[get("/healthcheck")]
