@@ -47,7 +47,6 @@ async fn main() -> std::io::Result<()> {
     if var_os("RUST_LOG").is_none() {
         set_var("RUST_LOG", "actix_web=info");
     }
-
     //get port from env
     let port: u16 = var("PORT")
                     .expect("cant get port from env")
