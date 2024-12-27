@@ -22,4 +22,5 @@ lapin = "2.5.0"
 r2d2_redis = "0.14.0"
 deadpool-lapin = "0.12.1"
 cronjob = "0.4.17"
+kafka = "0.10.0"
 

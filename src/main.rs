@@ -1,72 +1,76 @@
-#[warn(unused_doc_comments)]
-
 mod modules;
 mod utils;
 mod midleware;
 mod service;
+use std::collections::HashMap;
 
-use std::time::SystemTime;
 use actix_cors::Cors;
-use actix_web::{get, HttpResponse, Responder};
-use actix_web::{http::header, web, App, HttpServer};
+use actix_web::{get, HttpResponse, Responder, web, App, HttpServer};
+use actix_web::http::header;
 use actix_web::middleware::Logger;
-use actix_web::rt::spawn;
 use actix_web::web::scope;
-use cronjob::CronJob;
-use dotenv::dotenv;
 use lapin::options::{BasicPublishOptions, QueueDeclareOptions};
 use lapin::types::FieldTable;
 use lapin::BasicProperties;
 use r2d2_redis::redis::Commands;
 use serde_json::json;
-use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
-
 use modules::post::post_handler::public_post_config;
-use service::rabbitmq::{rabbit_connect, RabbitMqPool};
-use service::redis::{redis_connect, RedisPool};
 
+/// Shared state for Actix App
 pub struct AppState {
-    db: Pool<Postgres>,
-    redis:RedisPool,
-    rabbit:RabbitMqPool
+    db: sqlx::Pool<sqlx::Postgres>,
+    redis: service::redis::RedisPool,
+    rabbit: service::rabbitmq::RabbitMqPool,
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    
+    dotenv::dotenv().ok();
+    env_logger::init();
+    // Setup logger and environment variables
     if std::env::var_os("RUST_LOG").is_none() {
         std::env::set_var("RUST_LOG", "actix_web=info");
     }
-    dotenv().ok();
-    let mut secondly =  CronJob::new("testing cron", schedular_test);
-    secondly.seconds("1");
-    env_logger::init();
-    let database_url:String = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
-    let pool = match PgPoolOptions::new()
+    //get port from env
+    let port: u16 = std::env::var("PORT")
+                    .expect("cant get port from env")
+                    .parse::<u16>()
+                    .expect("cant convert port to u16");
+
+    // get database_url from env
+    let database_url: String = std::env::var("DATABASE_URL")
+                               .expect("cant get db url from env");
+
+    // create initial pool database
+    let pool: sqlx::Pool<sqlx::Postgres> = match sqlx::postgres::PgPoolOptions::new()
         .min_connections(5)
         .max_connections(50)
         .connect(&database_url)
-        .await
-    {
-        Ok(pool) => {
-            println!("✅Connection to the database is successful!");
-            pool
-        }
-        Err(err) => {
-            println!("🔥 Failed to connect to the database: {:?}", err);
-            std::process::exit(1);
-        }
-    };
+        .await {
+            Ok(pg_pool)=> {
+                println!("✅ Connection to the database is successful!");
+                pg_pool
+            },
+            Err(err) => {
+            println!("failed to connect database: {}",err);
+            std::process::exit(1)
+            }
+        };
 
-    let redis_conn =  redis_connect();
-    let rabbit_conn = rabbit_connect();
-    println!("🚀 Server started successfully");
+    // Create redis connection pool
+    let redis_conn: r2d2_redis::r2d2::Pool<r2d2_redis::RedisConnectionManager> = service::redis::redis_connect();
+
+    // Create rabbitmq connection pool
+    let rabbit_conn: deadpool_lapin::Pool = service::rabbitmq::rabbit_connect();
+
+    // print the status server and the port
+    println!("🚀 Server started successfully at port {:?}",port);
     
-    spawn(async move {
-        println!("🚀 schedular start 🚀");
-        secondly.start_job();
-    });
+    // Start Actix server
     HttpServer::new(move || {
+        //configure the cors
         let cors = Cors::default()
             .allowed_origin("http://localhost:3000")
             .allowed_methods(vec!["GET", "POST", "PATCH", "DELETE"])
@@ -76,83 +80,119 @@ async fn main() -> std::io::Result<()> {
                 header::ACCEPT,
             ])
             .supports_credentials();
+
         App::new()
-            .app_data(web::Data::new(AppState { db: pool.clone() ,redis:redis_conn.clone(),rabbit:rabbit_conn.clone()}))
+            .app_data(web::Data::new(AppState {
+                db: pool.clone(),
+                redis: redis_conn.clone(),
+                rabbit: rabbit_conn.clone(),
+            }))
             .wrap(cors)
             .wrap(Logger::default())
             .service(
                 scope("/api")
-                .service(api_health_check)
-                .configure(public_post_config)
+                    .service(api_health_check)
+                    .configure(public_post_config),
             )
     })
-    .bind(("0.0.0.0", 8080))?
+    .bind(("0.0.0.0",port))?
     .run()
     .await
 }
 
-pub fn schedular_test(name:&str){
-    let start_time = SystemTime::now();
-    let elapsed = start_time.elapsed().expect("Time went backwards");
-    println!("Job executed at: {:?}", elapsed);
-    println!("test schedular : {}", name);
-}
 
+
+    // Setup CronJob
+    // let mut secondly_job = CronJob::new("testing_cron", schedular_test);
+    // secondly_job.seconds("1");
+
+    // let pool_clone = pool.clone();
+    // spawn(async move{
+    //     start_background_worker(pool_clone).await;
+    // });
+    // spawn(async move {
+    //     println!("🚀 Scheduler started 🚀");
+    //     secondly_job.start_job();
+    // });
+/// Background worker function
+// async fn start_background_worker(db: Pool<Postgres>) {
+//     loop {
+//         match query("SELECT 1;").fetch_all(&db).await {
+//             Ok(_) => println!("🛠️ Background worker: Database connection successful"),
+//             Err(err) => println!("❌ Background worker: Database error: {}", err),
+//         }
+
+//         actix_web::rt::time::sleep(time::Duration::from_secs(60)).await; // Wait 60 seconds
+//     }
+// }
+
+/// CronJob scheduler test
+// pub fn schedular_test(name: &str) {
+//     let start_time = SystemTime::now();
+//     let elapsed = start_time.elapsed().expect("Time went backwards");
+//     println!("⏰ Job executed at: {:?} | Name: {}", elapsed, name);
+// }
+
+/// Health Check Endpoint
 #[get("/healthcheck")]
-pub async fn api_health_check(
-    data:web::Data<AppState>
-)-> impl Responder {
-    let mut message : String = String::from("");
+pub async fn api_health_check(data: web::Data<AppState>) -> impl Responder {
+    // let mut message = String::new();
+    
+    let mut error_messages:Vec<HashMap<String,String>> = vec![];
+    // Database Health Check
     match sqlx::query("SELECT 1;").fetch_one(&data.db).await {
         Ok(_) => {
-            message.push_str("database is healty");
-            println!("Database healthy")
-        },
-        Err(err) =>{
-            let error_message = format!("database cant connect : {}", err);
-            message.push_str(&error_message);
-            println!("{}",error_message)
+            println!("✅ Database healthy");
+        }
+        Err(err) => {
+            let mut error_message:HashMap<String,String> = HashMap::new();
+            error_message.insert("database".to_string(), format!("cant connect to database {}",err).to_string());
+            error_messages.push(error_message);
         }
     }
 
-    let redis_pool = &data.redis;
-    let conn_redis = redis_pool.get();
-
-    match conn_redis {
-        Ok(mut conn)=>{
-            let _:() = conn.set("testing_redis", "yoo").expect("failed to set key");
-            let redis_value :String = conn.get("testing_redis").expect("failed to get key");
-            message.push_str(", redis healty");
-            println!("redis healty {}",redis_value)
-        },
-        Err(err)=>{
-            let error_message = format!(", redis cant connect : {}", err);
-            message.push_str(&error_message);
-            println!("{}",error_message)
+    // Redis Health Check
+    match data.redis.get() {
+        Ok(mut conn) => {
+            let _: () = conn.set("testing_redis", "yoo").expect("Failed to set Redis key");
+            let redis_value: String = conn.get("testing_redis").expect("Failed to get Redis key");
+            println!("✅ Redis healthy: {}", redis_value);
         }
-
-    }
-
-    let rabbit_pool = &data.rabbit;
-    let rabbit_conn = rabbit_pool.get().await;
-
-    match rabbit_conn{
-        Ok(conn)=>{
-            let channel = conn.create_channel().await.expect("failed to create channel");
-            channel.queue_declare("test queue", QueueDeclareOptions::default(), FieldTable::default()).await.expect("failed to declare queue");
-            let _ = channel.basic_publish("","test_queue",BasicPublishOptions::default(),
-             b"Hello, RabbitMQ!",
-             BasicProperties::default(),
-         ).await.expect("Failed to publish message");  
-         message.push_str(", rabbit mq connect success");
-         println!("rabbit mq testing success")
-        },
-        Err(err)=>{
-            let error_message = format!(", rabbit cant connect : {}", err);
-            message.push_str(&error_message);
-            println!("{}",error_message)
+        Err(err) => {
+            let mut error_message:HashMap<String,String> = HashMap::new();
+            error_message.insert("redis".to_string(), format!("cant connect to redis {}",err).to_string());
+            error_messages.push(error_message);
         }
     }
-    message.push_str(", api healty ready to go 🚀🚀");
-    HttpResponse::Ok().json(json!({"status":"success","message":message}))
+
+    // RabbitMQ Health Check
+    match data.rabbit.get().await {
+        Ok(conn) => {
+            let channel = conn.create_channel().await.expect("Failed to create channel");
+                channel
+                .queue_declare("test_queue", QueueDeclareOptions::default(), FieldTable::default())
+                .await
+                .expect("Failed to declare queue");
+            let _ = channel
+                .basic_publish(
+                    "",
+                    "test_queue",
+                    BasicPublishOptions::default(),
+                    b"Hello, RabbitMQ!",
+                    BasicProperties::default(),
+                )
+                .await
+                .expect("Failed to publish message");
+                println!("✅ RabbitMQ is healthy");
+        }
+        Err(err) => {
+            let mut error_message:HashMap<String,String> = HashMap::new();
+            error_message.insert("redis".to_string(), format!("cant connect to redis {}",err).to_string());
+            error_messages.push(error_message);
+        }
+    }
+    if error_messages.len() >0{
+        return HttpResponse::BadRequest().json(json!({"error":error_messages}));
+    }
+    HttpResponse::Ok().json(json!({ "status": "success", "message": "API healthy and ready to go 🚀🚀" }))
 }
